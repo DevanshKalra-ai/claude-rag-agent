@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude RAG Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .citation { color: #6366f1; font-size: 0.8em; font-weight: 600; }
+    pre { background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+    #answer-box p { margin-bottom: 0.5rem; }
+    #answer-box ul { list-style: disc; padding-left: 1.25rem; margin-bottom: 0.5rem; }
+    .chunk-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: #ede9fe; color: #4f46e5;
+      padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gray-50 text-gray-900">
+
+<!-- Header -->
+<header class="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
+  <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
+    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+    </svg>
+  </div>
+  <h1 class="text-lg font-semibold">Claude RAG Agent</h1>
+  <span class="ml-auto text-xs text-gray-400">Powered by Claude + ChromaDB</span>
+</header>
+
+<div class="max-w-4xl mx-auto px-4 py-8 space-y-8">
+
+  <!-- Upload Section -->
+  <section class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">1 — Upload Document</h2>
+
+    <div id="drop-zone"
+      class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-indigo-400 transition-colors"
+      onclick="document.getElementById('file-input').click()">
+      <svg class="w-10 h-10 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+      </svg>
+      <p class="text-sm text-gray-500">Drop a PDF or DOCX here, or <span class="text-indigo-600 font-medium">click to browse</span></p>
+      <input id="file-input" type="file" accept=".pdf,.docx" class="hidden" onchange="handleFileSelect(this)" />
+    </div>
+
+    <div id="upload-status" class="mt-4 hidden">
+      <div class="flex items-center gap-3 p-3 bg-indigo-50 rounded-lg">
+        <div id="upload-spinner" class="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin hidden"></div>
+        <svg id="upload-check" class="w-5 h-5 text-green-500 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <p id="upload-msg" class="text-sm text-gray-700"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Query Section -->
+  <section class="bg-white rounded-xl border border-gray-200 p-6">
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-4">2 — Ask a Question</h2>
+
+    <div class="flex gap-3">
+      <input id="question-input" type="text"
+        placeholder="What is this document about?"
+        class="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        onkeydown="if(event.key==='Enter') askQuestion()" />
+      <button onclick="askQuestion()"
+        class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+        </svg>
+        Ask
+      </button>
+    </div>
+
+    <!-- Answer -->
+    <div id="answer-container" class="hidden mt-5">
+      <div class="border-t border-gray-100 pt-5">
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center">
+            <svg class="w-3.5 h-3.5 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+            </svg>
+          </div>
+          <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Answer</span>
+        </div>
+        <div id="answer-box" class="text-sm text-gray-800 leading-relaxed space-y-2"></div>
+
+        <!-- Chunks used -->
+        <div id="chunks-container" class="mt-4 hidden">
+          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Sources used</p>
+          <div id="chunks-list" class="flex flex-wrap gap-2"></div>
+        </div>
+
+        <!-- Token usage -->
+        <div id="usage-container" class="mt-4 hidden">
+          <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Token usage</p>
+          <div id="usage-stats" class="flex flex-wrap gap-3 text-xs text-gray-500"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="query-loading" class="hidden mt-5 flex items-center gap-3 text-sm text-gray-500">
+      <div class="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      Thinking…
+    </div>
+
+    <!-- Error -->
+    <div id="query-error" class="hidden mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700"></div>
+  </section>
+
+  <!-- Documents list -->
+  <section class="bg-white rounded-xl border border-gray-200 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Uploaded Documents</h2>
+      <button onclick="loadDocuments()" class="text-xs text-indigo-600 hover:underline">Refresh</button>
+    </div>
+    <div id="docs-list" class="space-y-2 text-sm text-gray-500">
+      <p class="italic">No documents yet.</p>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  let currentDocId = null;
+
+  // ── Upload ──────────────────────────────────────────────────────────────────
+  async function handleFileSelect(input) {
+    const file = input.files[0];
+    if (!file) return;
+    await uploadFile(file);
+  }
+
+  const dropZone = document.getElementById('drop-zone');
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-indigo-500'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-indigo-500'));
+  dropZone.addEventListener('drop', async e => {
+    e.preventDefault();
+    dropZone.classList.remove('border-indigo-500');
+    const file = e.dataTransfer.files[0];
+    if (file) await uploadFile(file);
+  });
+
+  async function uploadFile(file) {
+    const status = document.getElementById('upload-status');
+    const msg = document.getElementById('upload-msg');
+    const spinner = document.getElementById('upload-spinner');
+    const check = document.getElementById('upload-check');
+
+    status.classList.remove('hidden');
+    spinner.classList.remove('hidden');
+    check.classList.add('hidden');
+    msg.textContent = `Uploading ${file.name}…`;
+
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+      const res = await fetch('/upload', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
+
+      currentDocId = data.doc_id;
+      spinner.classList.add('hidden');
+      check.classList.remove('hidden');
+      msg.textContent = `✓ ${data.filename} — ${data.chunk_count} chunks across ${data.page_count} pages`;
+      loadDocuments();
+    } catch (err) {
+      spinner.classList.add('hidden');
+      msg.textContent = `Error: ${err.message}`;
+      msg.classList.add('text-red-600');
+    }
+  }
+
+  // ── Query ───────────────────────────────────────────────────────────────────
+  async function askQuestion() {
+    const question = document.getElementById('question-input').value.trim();
+    if (!question) return;
+    if (!currentDocId) { alert('Please upload a document first.'); return; }
+
+    document.getElementById('answer-container').classList.add('hidden');
+    document.getElementById('query-error').classList.add('hidden');
+    document.getElementById('query-loading').classList.remove('hidden');
+
+    try {
+      const res = await fetch('/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doc_id: currentDocId, question, n_results: 5 }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Query failed');
+      renderAnswer(data);
+    } catch (err) {
+      document.getElementById('query-error').textContent = `Error: ${err.message}`;
+      document.getElementById('query-error').classList.remove('hidden');
+    } finally {
+      document.getElementById('query-loading').classList.add('hidden');
+    }
+  }
+
+  function renderAnswer(data) {
+    // Render answer text — highlight [Page X, Chunk Y] citations
+    const box = document.getElementById('answer-box');
+    const highlighted = data.answer.replace(
+      /\[Page (\d+), Chunk (\d+)\]/g,
+      '<span class="citation">[$&]</span>'
+    ).replace(/\[Page (\d+), Chunk (\d+)\]/g, '<span class="citation">[Page $1, Chunk $2]</span>');
+    box.innerHTML = highlighted.replace(/\n/g, '<br/>');
+
+    // Chunks
+    const chunksContainer = document.getElementById('chunks-container');
+    const chunksList = document.getElementById('chunks-list');
+    if (data.chunks_used && data.chunks_used.length > 0) {
+      chunksList.innerHTML = data.chunks_used.map(c =>
+        `<span class="chunk-badge">Page ${c.page} · Chunk ${c.chunk_index} · ${(c.relevance_score * 100).toFixed(0)}%</span>`
+      ).join('');
+      chunksContainer.classList.remove('hidden');
+    } else {
+      chunksContainer.classList.add('hidden');
+    }
+
+    // Usage
+    const usageContainer = document.getElementById('usage-container');
+    const usageStats = document.getElementById('usage-stats');
+    if (data.usage && data.usage.input_tokens) {
+      const u = data.usage;
+      usageStats.innerHTML = [
+        `<span>Input: <strong>${u.input_tokens}</strong></span>`,
+        `<span>Output: <strong>${u.output_tokens}</strong></span>`,
+        u.cache_creation_tokens ? `<span class="text-amber-500">Cache write: <strong>${u.cache_creation_tokens}</strong></span>` : '',
+        u.cache_read_tokens ? `<span class="text-green-500">Cache hit: <strong>${u.cache_read_tokens}</strong></span>` : '',
+      ].filter(Boolean).join('');
+      usageContainer.classList.remove('hidden');
+    } else {
+      usageContainer.classList.add('hidden');
+    }
+
+    document.getElementById('answer-container').classList.remove('hidden');
+  }
+
+  // ── Documents list ──────────────────────────────────────────────────────────
+  async function loadDocuments() {
+    const list = document.getElementById('docs-list');
+    try {
+      const res = await fetch('/documents');
+      const data = await res.json();
+      if (!data.documents.length) {
+        list.innerHTML = '<p class="italic">No documents yet.</p>';
+        return;
+      }
+      list.innerHTML = data.documents.map(d => `
+        <div class="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer ${currentDocId === d.doc_id ? 'border-indigo-300 bg-indigo-50' : ''}"
+          onclick="selectDoc('${d.doc_id}')">
+          <div>
+            <p class="font-medium text-gray-800">${d.filename}</p>
+            <p class="text-xs text-gray-400">${d.chunk_count} chunks · ${d.page_count} pages</p>
+          </div>
+          <button onclick="event.stopPropagation(); deleteDoc('${d.doc_id}')"
+            class="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50">Delete</button>
+        </div>
+      `).join('');
+    } catch (e) {
+      list.innerHTML = '<p class="text-red-500 text-xs">Failed to load documents.</p>';
+    }
+  }
+
+  function selectDoc(docId) {
+    currentDocId = docId;
+    loadDocuments();
+  }
+
+  async function deleteDoc(docId) {
+    if (!confirm('Delete this document?')) return;
+    await fetch(`/documents/${docId}`, { method: 'DELETE' });
+    if (currentDocId === docId) currentDocId = null;
+    loadDocuments();
+  }
+
+  // Init
+  loadDocuments();
+</script>
+</body>
+</html>
